@@ -9,11 +9,10 @@
 - Modern dark interface (ImGui + GLFW)
 - Tag and album art parsing 
 - Automatic lyrics fetching via lrclib.net
-- Basic audio playback (im working on it)
+- Audio playback (OpenAL + FFmpeg)  (Im still working on it)
 - Spectrum visualizer
 
 ### Coming very soon
-- Full audio playback (OpenAL Soft + FFmpeg)  
 - Drag & drop, playlists, search
 
 ### Maybe coming soon

@@ -25,6 +25,7 @@ std::optional<AlbumArtData> pendingAlbumArt;
 
 void LoadAlbumArtAsync(const std::string& filePath) {
     albumArtLoading = true;
+    pendingAlbumArt.reset();
 
     std::thread([filePath]() {
         AVFormatContext* fmt_ctx = nullptr;
@@ -38,17 +39,20 @@ void LoadAlbumArtAsync(const std::string& filePath) {
             return;
         }
 
-        for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
+        for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
             AVStream* stream = fmt_ctx->streams[i];
             if (stream->disposition & AV_DISPOSITION_ATTACHED_PIC) {
-                AVPacket* pic = &stream->attached_pic;
-                if (pic->data && pic->size > 0) {
-                    pendingAlbumArt = AlbumArtData{ std::vector<unsigned char>(pic->data, pic->data + pic->size) };
+                AVPacket* pkt = &stream->attached_pic;
+                if (pkt->data && pkt->size > 0) {
+                    pendingAlbumArt = AlbumArtData{
+                        std::vector<unsigned char>(pkt->data, pkt->data + pkt->size)
+                    };
                     break;
                 }
             }
         }
         avformat_close_input(&fmt_ctx);
+        albumArtLoading = false;
     }).detach();
 }
 
@@ -71,16 +75,15 @@ void GuiLoop(GLFWwindow* window) {
         if (pendingAlbumArt.has_value()) {
             GLuint old = activeAlbumArtTexture.load();
             if (old) glDeleteTextures(1, &old);
-            GLuint tex = 0;
-            if (!pendingAlbumArt->data.empty()) {
-                tex = LoadTextureFromMemory(pendingAlbumArt->data.data(), pendingAlbumArt->data.size());
-            }
+            GLuint tex = !pendingAlbumArt->data.empty()
+                ? LoadTextureFromMemory(pendingAlbumArt->data.data(), pendingAlbumArt->data.size())
+                : 0;
             activeAlbumArtTexture.store(tex);
             pendingAlbumArt.reset();
-            albumArtLoading = false;
         }
+
         ImGui::NewFrame();
-        ImGui::PushFont(io.Fonts->Fonts[1]);   
+        ImGui::PushFont(io.Fonts->Fonts[1]);
         
         ImGui::SetNextWindowSize(ImVec2(600, 350));
         ImGui::SetNextWindowPos(ImVec2(0, 270), ImGuiCond_Always);
@@ -98,7 +101,6 @@ void GuiLoop(GLFWwindow* window) {
         ImGui::BeginChild("##Header", ImVec2(0, 45), true, ImGuiWindowFlags_NoScrollbar);
         {
             ImGui::SetCursorPos(ImVec2(12, 8));
-
             ImGui::PushFont(io.Fonts->Fonts[0]);
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12, 8));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10, 10));
@@ -137,27 +139,24 @@ void GuiLoop(GLFWwindow* window) {
 
             bool isPlaying = (activeFilePath == path);
 
-            ImGui::PushID(i);
+            ImGui::PushID(static_cast<int>(i));
 
             if (isPlaying) {
                 ImVec2 p = ImGui::GetCursorScreenPos();
                 ImGui::GetWindowDrawList()->AddRectFilled(
                     p, ImVec2(p.x + ImGui::GetWindowWidth(), p.y + 38),
-                    IM_COL32(34, 109, 217, 90),
-                    6.0f
-                );
+                    IM_COL32(34, 109, 217, 90), 6.0f);
             }
 
             if (ImGui::Selectable("##sel", isPlaying, 0, ImVec2(0, 38))) {
                 activeFilePath = path;
-                g_audio.setPlaylist(audioFiles, i);
-                g_audio.play();
-
+                g_audio.loadAndPlay(path);  
+                
                 lyricsLoading = true;
                 activeFileLyrics.clear();
-                std::thread([path, meta]() {
-                    std::string lyrics = FetchLyrics(meta.title, meta.artist);
-                    activeFileLyrics = lyrics.empty() ? "No lyrics found" : lyrics;
+                std::thread([title = meta.title, artist = meta.artist]() {
+                    activeFileLyrics = FetchLyrics(title, artist);
+                    if (activeFileLyrics.empty()) activeFileLyrics = "No lyrics found";
                     lyricsLoading = false;
                 }).detach();
 
@@ -165,42 +164,43 @@ void GuiLoop(GLFWwindow* window) {
             }
 
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 38 + 10);
-
             ImGui::SetCursorPosX(16);
-            ImGui::TextColored(ImVec4(0.70f, 0.70f, 0.75f, 1.0f), "%02d", (int)i + 1);
+            ImGui::TextColored(ImVec4(0.70f, 0.70f, 0.75f, 1.0f), "%02d", static_cast<int>(i + 1));
 
             ImGui::SameLine();
             ImGui::SetCursorPosX(50);
-            ImGui::TextColored(isPlaying ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : ImVec4(0.92f, 0.92f, 0.95f, 1.0f),
+            ImGui::TextColored(isPlaying ? ImVec4(1,1,1,1) : ImVec4(0.92f,0.92f,0.95f,1),
                                "%s", display.c_str());
 
             ImGui::PopID();
         }
 
         ImGui::PopStyleVar();
-
         ImGui::EndChild();
         ImGui::End();
         ImGui::PopStyleVar(2);
+
         
         ImGui::SetNextWindowSize(ImVec2(300, 620));
         ImGui::SetNextWindowPos(ImVec2(600, 0), ImGuiCond_Always);
         ImGui::PushFont(io.Fonts->Fonts[1]);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 10));
-        ImGui::Begin("Now Playing", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar);
+        ImGui::Begin("Now Playing", nullptr,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar);
 
         ImGui::SetCursorPos(ImVec2(10, 10));
-
         if (g_RubikLarge) ImGui::PushFont(g_RubikLarge);
-        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 1.f), "Now playing:");
+        ImGui::TextColored(ImVec4(1,1,1,1), "Now playing:");
         if (g_RubikLarge) ImGui::PopFont();
 
         ImVec2 AlbumArtSize = ImVec2(250, 250);
-        if (activeAlbumArtTexture != 0) {
+        GLuint tex = activeAlbumArtTexture.load();
+        if (tex!=0) {
             ImVec2 p_min = ImGui::GetCursorScreenPos();
             ImVec2 p_max = ImVec2(p_min.x + AlbumArtSize.x, p_min.y + AlbumArtSize.y);
             ImDrawList* dl = ImGui::GetForegroundDrawList();
-            dl->AddImageRounded((ImTextureID)(intptr_t)activeAlbumArtTexture.load(), p_min, p_max, ImVec2(0,0), ImVec2(1,1), ImGui::GetColorU32(ImVec4(1,1,1,1)), 10.0f);
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, p_min, p_max, ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,255), 10.0f);
             ImGui::Dummy(AlbumArtSize);
         } else {
             ImVec2 p_min = ImGui::GetCursorScreenPos();
@@ -212,132 +212,76 @@ void GuiLoop(GLFWwindow* window) {
             drawList->AddRect(p_min, p_max, borderColor, 0.0f, 0, borderThickness);
         }
 
-        ImGui::BeginGroup();
+        auto getMeta = [&]() -> const AudioMetadata& {
+            static AudioMetadata empty;
+            if (activeFilePath.empty()) return empty;
+            auto it = metadataCache.find(activeFilePath);
+            return it != metadataCache.end() ? it->second : empty;
+        };
+        const auto& m = getMeta();
 
-        ImGui::PushFont(g_RubikRegular);
-        ImGui::Text("Title:");
-        ImGui::PopFont();
-        ImGui::PushFont(g_RubikMedium);
-        {
-            std::string titleStr = "Unknown";
-            if (!activeFilePath.empty()) {
-                auto it = audioManager.GetMetadataCache().find(activeFilePath);
-                if (it != audioManager.GetMetadataCache().end()) titleStr = it->second.title;
-            }
-            ImGui::Text("%s", titleStr.c_str());
-        }
-        ImGui::PopFont();
+        ImGui::PushFont(g_RubikRegular); ImGui::Text("Title:"); ImGui::PopFont();
+        ImGui::PushFont(g_RubikMedium); ImGui::TextWrapped("%s", m.title.empty() ? "Unknown" : m.title.c_str()); ImGui::PopFont();
         ImGui::Separator();
 
-        ImGui::PushFont(g_RubikRegular);
-        ImGui::Text("Artist:");
-        ImGui::PopFont();
-        ImGui::PushFont(g_RubikMedium);
-        {
-            std::string artistStr = "Unknown";
-            if (!activeFilePath.empty()) {
-                auto it = audioManager.GetMetadataCache().find(activeFilePath);
-                if (it != audioManager.GetMetadataCache().end()) artistStr = it->second.artist;
-            }
-            ImGui::Text("%s", artistStr.c_str());
-        }
-        ImGui::PopFont();
+        ImGui::PushFont(g_RubikRegular); ImGui::Text("Artist:"); ImGui::PopFont();
+        ImGui::PushFont(g_RubikMedium); ImGui::TextWrapped("%s", m.artist.empty() ? "Unknown" : m.artist.c_str()); ImGui::PopFont();
         ImGui::Separator();
 
-        ImGui::PushFont(g_RubikRegular);
-        ImGui::Text("Album:");
-        ImGui::PopFont();
-        ImGui::PushFont(g_RubikMedium);
-        {
-            std::string albumStr = "Unknown";
-            if (!activeFilePath.empty()) {
-                auto it = audioManager.GetMetadataCache().find(activeFilePath);
-                if (it != audioManager.GetMetadataCache().end()) albumStr = it->second.album;
-            }
-            ImGui::Text("%s", albumStr.c_str());
-        }
-        ImGui::PopFont();
+        ImGui::PushFont(g_RubikRegular); ImGui::Text("Album:"); ImGui::PopFont();
+        ImGui::PushFont(g_RubikMedium); ImGui::TextWrapped("%s", m.album.empty() ? "Unknown" : m.album.c_str()); ImGui::PopFont();
         ImGui::Separator();
 
-        ImGui::PushFont(g_RubikRegular);
-        ImGui::Text("Year:");
-        ImGui::PopFont();
-        ImGui::PushFont(g_RubikMedium);
-        {
-            int yearVal = 0;
-            if (!activeFilePath.empty()) {
-                auto it = audioManager.GetMetadataCache().find(activeFilePath);
-                if (it != audioManager.GetMetadataCache().end()) yearVal = it->second.year;
-            }
-            ImGui::Text("%d", yearVal);
-        }
-        ImGui::PopFont();
-        
-        ImGui::EndGroup();
+        ImGui::PushFont(g_RubikRegular); ImGui::Text("Year:"); ImGui::PopFont();
+        ImGui::PushFont(g_RubikMedium); ImGui::Text("%d", m.year); ImGui::PopFont();
 
-        ImGui::End();        
+        ImGui::End();
         ImGui::PopStyleVar();
         ImGui::PopFont();
 
+        
         ImGui::SetNextWindowSize(ImVec2(380,620));
         ImGui::SetNextWindowPos(ImVec2(900,0), ImGuiCond_FirstUseEver);
-        ImGui::Begin("lyrics", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar);
+        ImGui::Begin("lyrics", nullptr,
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar);
         ImGui::SetCursorPos(ImVec2(10, 10));
-        ImVec2 childSize = ImVec2(
-            ImGui::GetWindowWidth()  - 20,
-            ImGui::GetWindowHeight() - 20
-        );
-        ImGui::BeginChild("LyricsScroll", childSize, true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        ImGui::PushFont(g_RubikLarge); 
+        ImGui::BeginChild("LyricsScroll", ImVec2(ImGui::GetWindowWidth()-20, ImGui::GetWindowHeight()-20),
+                           true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        ImGui::PushFont(g_RubikLarge);
         if (lyricsLoading) {
             ImGui::Text("Loading text from lrclib.net...");
         } else if (!activeFileLyrics.empty()) {
             ImGui::TextWrapped("%s", activeFileLyrics.c_str());
-        } else { 
+        } else {
             ImGui::Text("Here be lyrics");
         }
         ImGui::PopFont();
         ImGui::EndChild();
         ImGui::End();
-
+        
+        
         ImGui::SetNextWindowSize(ImVec2(1280, 100));
         ImGui::SetNextWindowPos(ImVec2(0, 620), ImGuiCond_Always);
         ImGui::PushFont(io.Fonts->Fonts[1]);
         ImGui::SetNextWindowContentSize(ImVec2(1280, 50));
 
         ImGui::Begin("panel", nullptr,
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_NoTitleBar
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar
         );
 
         ImGui::SetCursorPos(ImVec2(10, 10));
 
-        if (activeAlbumArtTexture != 0) {
+        if (tex) {
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             ImVec2 p_min = ImGui::GetCursorScreenPos();
             ImVec2 p_max = ImVec2(p_min.x + 80, p_min.y + 80);
-
-            dl->AddImageRounded(
-                (ImTextureID)(intptr_t)activeAlbumArtTexture.load(),
-                p_min, p_max,
-                ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255,255,255,255),
-                10.0f
-            );
-        }
-        else {
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, p_min, p_max, ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,255), 10.0f);
+        } else {
             ImGui::Dummy(ImVec2(80, 80));
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
-            ImU32 borderColor = IM_COL32(255, 255, 255, 255);
-            float borderThickness = 2.0f;
-
-            drawList->AddRect(
-                ImVec2(10, 630),
-                ImVec2(10.f + 80, 630.f + 80),
-                borderColor, 0.0f, 0, borderThickness
-            );
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            dl->AddRect(ImVec2(10, 630), ImVec2(90, 710), IM_COL32(255,255,255,255), 0, 0, 2.0f);
         }
 
         ImGui::SameLine();
@@ -351,47 +295,39 @@ void GuiLoop(GLFWwindow* window) {
         ImGui::SetCursorPosX(98.f);
         std::string activeTitle;
         std::string activeArtist;
-
-        if (!activeFilePath.empty()) {
-            auto it = audioManager.GetMetadataCache().find(activeFilePath);
-            if (it != audioManager.GetMetadataCache().end()) {
-                activeTitle  = it->second.title;
-                activeArtist = it->second.artist;
-            }
-        }
-        if (activeTitle.empty())  activeTitle  = "Unknown";
-        if (activeArtist.empty()) activeArtist = "Unknown";
-
-
-        ImGui::Text("%s", activeTitle.empty() ? "Loading..." : activeTitle.c_str());
+        ImGui::Text("%s", m.title.empty() ? "Unknown" : m.title.c_str());
         ImGui::SetCursorPosX(98.f);
-
         float slideposx2 = ImGui::GetCursorPosX() + 270.f;
         float slideposy2 = ImGui::GetCursorPosY() - 10.f;
-
-        ImGui::Text("%s", activeArtist.c_str());
+        ImGui::Text("%s", m.artist.empty() ? "Unknown" : m.artist.c_str());
         ImGui::EndGroup();
 
         style.ItemSpacing.y = originalItemSpacingY;
+        
+        ImGui::SetCursorPosX(98.f);
+        float currentTime = static_cast<float>(g_audio.position());
+        float trackLength = static_cast<float>(g_audio.duration());
 
-        ImGui::PushItemWidth(600);
         ImGui::SetCursorPos(ImVec2(slideposx2, slideposy2));
-
-        float currentTime = (float)g_audio.position();
-        float trackLength = (float)g_audio.duration();
-
-        if (ImGui::SliderFloat("##Track Position", &currentTime, 0.0f, trackLength, "Time: %.1f s")) {
+        ImGui::PushItemWidth(600);
+        if (ImGui::SliderFloat("##Track Position", &currentTime, 0.0f,
+                               trackLength > 0 ? trackLength : 1.0f, "Time: %.1f s")) {
             g_audio.seek(currentTime);
         }
-
         ImGui::PopItemWidth();
-
+        
         ImGui::SetCursorPos(ImVec2(550, 25));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.f, 10.f));
         ImGui::PushFont(io.Fonts->Fonts[0]);
-
+        
         if (ImGui::Button(u8"\uf048", ImVec2(70, 30))) {
-            g_audio.prev();
+            auto it = std::find(audioFiles.begin(), audioFiles.end(), activeFilePath);
+            if (it != audioFiles.end() && it != audioFiles.begin()) {
+                --it;
+                activeFilePath = *it;
+                g_audio.loadAndPlay(activeFilePath);
+                LoadAlbumArtAsync(activeFilePath);
+            }
         }
 
         ImGui::SameLine();
@@ -400,59 +336,51 @@ void GuiLoop(GLFWwindow* window) {
         }
 
         ImGui::SameLine();
+        
         if (ImGui::Button(u8"\uf051", ImVec2(70, 30))) {
-            g_audio.next();
+            auto it = std::find(audioFiles.begin(), audioFiles.end(), activeFilePath);
+            if (it != audioFiles.end()) {
+                auto next = std::next(it);
+                if (next != audioFiles.end()) {
+                    activeFilePath = *next;
+                    g_audio.loadAndPlay(activeFilePath);
+                    LoadAlbumArtAsync(activeFilePath);
+                }
+            }
         }
-
-        static bool repeat = false;
-        static bool shuffle = false;
-
+        
+        static bool repeat = false, shuffle = false;
         ImGui::SetCursorPos(ImVec2(510, 25));
-        if (repeat)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f,0.3f,0.7f,1.0f));
-        else
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f,0.2f,0.2f,1.0f));
-
-        if (ImGui::Button(u8"\uf01e", ImVec2(30, 30))) {
-            repeat = !repeat;
-        }
+        ImGui::PushStyleColor(ImGuiCol_Button, repeat ? ImVec4(0.1f,0.3f,0.7f,1) : ImVec4(0.2f,0.2f,0.2f,1));
+        if (ImGui::Button(u8"\uf01e", ImVec2(30,30))) repeat = !repeat;
         ImGui::PopStyleColor();
 
         ImGui::SetCursorPos(ImVec2(785, 25));
-        if (shuffle)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f,0.3f,0.7f,1.0f));
-        else
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f,0.2f,0.2f,1.0f));
-
-        if (ImGui::Button(u8"\uf074", ImVec2(30, 30))) {
-            shuffle = !shuffle;
-        }
+        ImGui::PushStyleColor(ImGuiCol_Button, shuffle ? ImVec4(0.1f,0.3f,0.7f,1) : ImVec4(0.2f,0.2f,0.2f,1));
+        if (ImGui::Button(u8"\uf074", ImVec2(30,30))) shuffle = !shuffle;
         ImGui::PopStyleColor();
 
         ImGui::PopFont();
         ImGui::PopStyleVar();
 
         float volume = g_audio.volume();
-
         ImGui::SameLine();
         ImGui::SetCursorPosX(slideposx2 + 655.f);
         ImGui::SetCursorPosY(slideposy2 + 1.f);
-
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 4.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, 8.0f);
-
         ImGui::PushItemWidth(150);
         if (ImGui::SliderFloat("##Volume", &volume, 0.0f, 1.0f, "")) {
-            //g_audio.setVolume(volume);
+            g_audio.setVolume(volume);
         }
         ImGui::PopItemWidth();
-
         ImGui::PopStyleVar(3);
 
         ImGui::PopFont();
         ImGui::End();
 
+        
         ImGui::SetNextWindowSize(ImVec2(600, 270), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
         ImGui::Begin("Visualizer", nullptr,
@@ -517,9 +445,10 @@ void GuiLoop(GLFWwindow* window) {
 
         ImGui::End();
         ImGui::PopFont();
+
         ImGui::Render();
         glClearColor(0.110f, 0.110f, 0.125f, 1.000f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
     }
