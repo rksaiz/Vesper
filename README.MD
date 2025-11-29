@@ -1,18 +1,20 @@
-# **Vesper - Local music player.**
-**Vesper - is a polished version of my player, based on echoa² and echoa-legacy (These are my old projects, formerly fastPlayMP3, echoa-play)** 
+# **Vesper**
+**Local music player with metadata, lyrics, and spectrum visualization (previously echoa-play)**
+
 
 ![Vesper screenshot](VESPER.png)
 
-## **Warning: This is an unstable version. It contains bugs and some functionality is missing.**
-### Current features
+### **Warning**
+**Unstable version: contains bugs and incomplete features.**
 
+### Current features
 - Modern dark interface (ImGui + GLFW)
 - Tag and album art parsing 
 - Automatic lyrics fetching via lrclib.net
 - Audio playback (OpenAL + FFmpeg)  (Im still working on it)
 - Spectrum visualizer
 
-### Coming very soon
+### Coming soon
 - Drag & drop, playlists, search
 
 ### Maybe coming soon
@@ -69,5 +71,4 @@ Please see the `LICENSES` directory for more information.
 - lrclib.net — awesome free lyrics database
 - You — for checking this out
 
-A ★ star is the best kind of thanks!
-Found a bug? Have an idea? Issues and pull requests are always welcome!
+### ★ Found a bug or idea? Issues and pull requests welcome!
