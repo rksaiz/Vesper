@@ -5,8 +5,20 @@ ImFont* g_RubikRegular = nullptr;
 ImFont* g_RubikMedium = nullptr;
 ImFont* g_RubikLarge = nullptr;
 
+std::string getExeDir() {
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string path(buffer);
+    return path.substr(0, path.find_last_of("\\/"));
+}
+
+std::string getFontPath(const std::string& relativePath) {
+    return getExeDir() + "\\" + relativePath;
+}
+
 void LoadRubikFont(ImGuiIO& io) {
-    const char* rubikFontPath = RUBIK_FONT_PATH;
+    std::string rubikFontPathStr = getFontPath("fonts\\rubik\\Rubik-Medium.ttf");
+    const char* rubikFontPath = rubikFontPathStr.c_str();
 
     ImFontConfig config;
     config.OversampleH = 3;
@@ -31,7 +43,8 @@ void LoadRubikFont(ImGuiIO& io) {
 
 void LoadFontAwesome(ImGuiIO& io)
 {
-    const char* fontAwesomePath = FONT_AWESOME_PATH;
+    std::string fontAwesomePathStr = getFontPath("fonts\\fontawesome-free-6.7.2-desktop\\otfs\\Font Awesome 6 Free-Solid-900.otf");
+    const char* fontAwesomePath = fontAwesomePathStr.c_str();
 
     io.Fonts->AddFontDefault();
 
@@ -41,5 +54,6 @@ void LoadFontAwesome(ImGuiIO& io)
     
     static const ImWchar icons_ranges[] = { 0xf000, 0xf3ff, 0 }; 
 
-    io.Fonts->AddFontFromFileTTF(fontAwesomePath, 16.0f, &config, icons_ranges);
+    if (!io.Fonts->AddFontFromFileTTF(fontAwesomePath, 16.0f, &config, icons_ranges))
+        std::cerr << "Failed to load FontAwesome" << std::endl;
 }

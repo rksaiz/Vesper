@@ -23,10 +23,10 @@
 ```bash
 git clone https://github.com/rksaiz/Vesper.git
 cd Vesper
-cmake -B build -G "MinGW Makefiles" -DCMAKE_INSTALL_PREFIX="(folder to install)"
+cmake -B build -G "MinGW Makefiles"
 cmake --build build
-cmake --install build
 ```
+**Vesper.exe will appear in release/**
 
 ## License
 Vesper itself is licensed under the Apache License 2.0

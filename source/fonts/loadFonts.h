@@ -2,6 +2,9 @@
 #define LOADFONTS_H
 #include "imgui.h"
 #include <iostream>
+#include <windows.h>
+#include <string>
+#include <filesystem>
 
 extern ImFont* g_RubikRegular;
 extern ImFont* g_RubikMedium;

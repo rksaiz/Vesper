@@ -4,21 +4,18 @@ project(Vesper)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-
-# set fonts path
-set(FONT_AWESOME_PATH "${CMAKE_CURRENT_SOURCE_DIR}/fonts/fontawesome-free-6.7.2-desktop/otfs/Font Awesome 6 Free-Solid-900.otf")
-add_definitions(-DFONT_AWESOME_PATH="${FONT_AWESOME_PATH}")
-set(RUBIK_FONT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/fonts/rubik/Rubik-Medium.ttf")
-add_definitions(-DRUBIK_FONT_PATH="${RUBIK_FONT_PATH}")
-
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/release")
 # -----------------------------
 # 3rdparty
 # -----------------------------
-set(THIRD_PARTY_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include")
-set(THIRD_PARTY_LIB_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib")
-set(THIRD_PARTY_BIN_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/bin")
+set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty")
+set(THIRD_PARTY_INCLUDE_DIR "${THIRD_PARTY_DIR}/include")
+set(THIRD_PARTY_LIB_DIR     "${THIRD_PARTY_DIR}/lib")
+set(THIRD_PARTY_BIN_DIR     "${THIRD_PARTY_DIR}/bin")
+
 set(GLEW_DLL                "${THIRD_PARTY_BIN_DIR}/glew32.dll")
 set(LIBCURL_DLL             "${THIRD_PARTY_BIN_DIR}/libcurl-x64.dll")
+
 set(FFMPEG_INCLUDE_DIR ${THIRD_PARTY_INCLUDE_DIR}/ffmpeg)
 set(FFMPEG_LIBRARY_DIR ${THIRD_PARTY_LIB_DIR}/ffmpeg)
 set(LIBCURL_INCLUDE_DIR ${THIRD_PARTY_INCLUDE_DIR}/libcurl)
@@ -38,6 +35,7 @@ find_library(SWRESAMPLE_LIBRARY NAMES swresample swresample-5 PATHS ${FFMPEG_LIB
 # -----------------------------
 include(FetchContent)
 
+# GLFW
 FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -45,6 +43,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glfw)
 
+# ImGui
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -52,6 +51,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
+# JSON
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -59,40 +59,35 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# KISSFFT
 FetchContent_Declare(
   kissfft
   GIT_REPOSITORY https://github.com/mborgerding/kissfft.git
-  GIT_TAG        master
+  GIT_TAG master
 )
 
 set(KISSFFT_TOOLS OFF CACHE BOOL "" FORCE)
 set(KISSFFT_TEST  OFF CACHE BOOL "" FORCE)
 set(KISSFFT_OPENMP OFF CACHE BOOL "" FORCE)
-
 FetchContent_MakeAvailable(kissfft)
 
-if(EXISTS "${kissfft_SOURCE_DIR}/test/CMakeLists.txt")
-    file(READ "${kissfft_SOURCE_DIR}/test/CMakeLists.txt" content)
-    string(REPLACE "pkg_check_modules(FFTW fftw3)" "# pkg_check_modules(FFTW fftw3)" content "${content}")
-    string(REPLACE "find_package(PkgConfig REQUIRED)" "# find_package(PkgConfig REQUIRED)" content "${content}")
-    file(WRITE "${kissfft_SOURCE_DIR}/test/CMakeLists.txt" "${content}")
-endif()
-
+# OpenGL
 find_package(OpenGL REQUIRED)
 
 # -----------------------------
-# Targets
+# Executable
 # -----------------------------
 add_executable(${PROJECT_NAME} 
-    source/core
-    source/files 
-    source/fonts 
-    source/gui 
-    source/audio 
-    source/tags 
-    source/lyrics
-    )
+    source/core/main.cpp 
+    source/files/files.cpp
+    source/fonts/loadFonts.cpp
+    source/gui/gui.cpp source/gui/GuiLoop.cpp
+    source/audio/AudioManager.cpp source/audio/AudioEngine.cpp
+    source/tags/readtags.cpp source/tags/albumArt.cpp
+    source/lyrics/getlyrics.cpp
+)
 
+# ImGui sources
 target_sources(${PROJECT_NAME} PRIVATE
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -102,18 +97,13 @@ target_sources(${PROJECT_NAME} PRIVATE
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
-set(OPENAL_INCLUDE_DIR "${THIRD_PARTY_INCLUDE_DIR}/OpenAL")
-set(OPENAL_LIBRARY "${THIRD_PARTY_LIB_DIR}/OpenAL/OpenAL32.lib")
-
-set(LIBCURL_LIB ${LIBCURL_LIBRARY_DIR}/libcurl.dll.a)
-
-# Include
+# Include dirs
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${THIRD_PARTY_INCLUDE_DIR} 
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${OPENAL_INCLUDE_DIR}    
-    ${GLEW_INCLUDE_DIR}
+    ${THIRD_PARTY_INCLUDE_DIR}/OpenAL
+    ${THIRD_PARTY_INCLUDE_DIR}/GLEW
     source/core
     source/files 
     source/fonts 
@@ -130,10 +120,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${kissfft_SOURCE_DIR}    
 )
 
-target_link_libraries(${PROJECT_NAME}  PRIVATE
-    ${OPENAL_LIBRARY}
+# Link libraries
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${THIRD_PARTY_LIB_DIR}/OpenAL/OpenAL32.lib
     ${GLEW_DLL}
-    ${LIBCURL_DLL}
     glfw
     OpenGL::GL
     ${AVCODEC_LIBRARY}
@@ -141,81 +131,82 @@ target_link_libraries(${PROJECT_NAME}  PRIVATE
     ${AVUTIL_LIBRARY}
     ${SWRESAMPLE_LIBRARY}
     nlohmann_json::nlohmann_json
-    ${LIBCURL_LIB}
-    ${KISSFFT_LIBRARY}    
+    ${THIRD_PARTY_LIB_DIR}/libcurl/libcurl.dll.a
+    ${KISSFFT_LIBRARY}
 )
 
-# copy postinstall
+# -----------------------------
+# Copy DLLs & Fonts after build
+# -----------------------------
+set(INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/release")
 
-file(GLOB FFMPEG_DLLS "${FFMPEG_LIBRARY_DIR}/*.dll")
+file(MAKE_DIRECTORY "${INSTALL_DIR}")
+
+function(copy_files TARGET FILES)
+    foreach(f ${FILES})
+        add_custom_command(TARGET ${TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${f}" "${INSTALL_DIR}/"
+        )
+    endforeach()
+endfunction()
+
+# FFMPEG DLLs
+set(FFMPEG_DLLS
+    "${THIRD_PARTY_BIN_DIR}/avcodec-61.dll"
+    "${THIRD_PARTY_BIN_DIR}/avdevice-61.dll"
+    "${THIRD_PARTY_BIN_DIR}/avfilter-10.dll"
+    "${THIRD_PARTY_BIN_DIR}/avformat-61.dll"
+    "${THIRD_PARTY_BIN_DIR}/avutil-59.dll"
+    "${THIRD_PARTY_BIN_DIR}/swresample-5.dll"
+)
+
 foreach(dll ${FFMPEG_DLLS})
-  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${dll}"
-    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${dll}" "${INSTALL_DIR}/"
+    )
 endforeach()
 
-if(EXISTS ${GLEW_DLL})
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${GLEW_DLL}"
-    "glew32.dll"
-    COMMENT "Copying glew32.dll to bin directory")
-    else()
-    message(FATAL_ERROR "glew32.dll not found at ${GLEW_DLL}. Please ensure it is placed in bin/.")
-endif()
+# GLEW / OpenAL
+copy_files(${PROJECT_NAME} ${GLEW_DLL} "${THIRD_PARTY_BIN_DIR}/OpenAL32.dll")
 
-if(EXISTS ${LIBCURL_DLL})
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${LIBCURL_DLL}"
-    "libcurl-x64.dll"
-    COMMENT "Copying libcurl-x64.dll to bin directory")
-    else()
-    message(FATAL_ERROR "libcurl-x64.dll not found at ${LIBCURL_DLL}. Please ensure it is placed in bin/.")
-endif()
-
-if(EXISTS 3rdparty/cacert.pem)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "3rdparty/cacert.pem"
-    "cacert.pem"
-    COMMENT "Copying cacert.pem to bin directory")
-    else()
-    message(FATAL_ERROR "cacert.pem not found at 3rdparty/cacert.pem. Please ensure it is placed in bin/.")
-endif()
-
-install(FILES 
-    ${FFMPEG_DLLS}
-    ${GLEW_DLL}
-    ${LIBCURL_DLL}
-    ${THIRD_PARTY_BIN_DIR}/OpenAL32.dll
-    3rdparty/cacert.pem
-    DESTINATION release
+    "${LIBCURL_DLL}" "${INSTALL_DIR}/"
 )
 
-add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)
-
-install(TARGETS Vesper DESTINATION release)
-
-file(GLOB EXTRA_DLLS "${THIRD_PARTY_BIN_DIR}/*.dll")
-
-install(FILES ${EXTRA_DLLS}
-    DESTINATION release
+# fonts
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/fonts"
+    "${INSTALL_DIR}/fonts"
 )
 
+# Curl cert
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cacert.pem"
+    "${INSTALL_DIR}/"
+)
 
+# Install exe
+install(TARGETS ${PROJECT_NAME} DESTINATION ${INSTALL_DIR})
 
+# -----------------------------
+# copy MinGW dlls
+# -----------------------------
 find_program(MINGW_GXX_EXECUTABLE NAMES g++)
 if(MINGW_GXX_EXECUTABLE)
     get_filename_component(MINGW_DIR ${MINGW_GXX_EXECUTABLE} DIRECTORY)
     get_filename_component(MINGW_DIR ${MINGW_DIR} DIRECTORY)
-
     set(MINGW_BIN_DIR "${MINGW_DIR}/bin")
-
-    foreach(lib libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+    foreach(lib libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll libsoxr.dll libgomp-1.dll)
         if(EXISTS "${MINGW_BIN_DIR}/${lib}")
-            install(FILES "${MINGW_BIN_DIR}/${lib}" DESTINATION release)
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MINGW_BIN_DIR}/${lib}" "${INSTALL_DIR}/"
+            )
         endif()
     endforeach()
 endif()
