@@ -21,7 +21,7 @@
 - Settings, EQ
 
 ## Download (Windows)
-[Download Vesper v0.1.1-beta](https://github.com/rksaiz/Vesper/releases/tag/v0.1.1-beta
+[Download Vesper v0.1.1-beta](https://github.com/rksaiz/Vesper/releases/tag/v0.1.1-beta)
 
 
 ## Build (Windows)
