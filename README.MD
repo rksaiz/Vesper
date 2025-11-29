@@ -19,7 +19,9 @@
 ### Maybe coming soon
 - Settings, EQ
 
-## Download (Windows): https://github.com/rksaiz/Vesper/releases/tag/v0.1.0-alpha1
+## Download (Windows)
+[Download Vesper v0.1.0-alpha1](https://github.com/rksaiz/Vesper/releases/tag/v0.1.0-alpha1)
+
 
 ## Build (Windows)
 ```bash
